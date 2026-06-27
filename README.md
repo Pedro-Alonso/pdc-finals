@@ -91,6 +91,20 @@ python -m src.demo.demo_mutex
 Demonstra 2 algoritmos: Ricart-Agrawala (baseado em permissões, 2(N-1) mensagens por
 entrada na CS) e Maekawa (baseado em quóruns, ~3√N mensagens por entrada na CS).
 
+### Consenso e Tolerância a Falhas
+
+```bash
+python -m src.demo.demo_consensus
+```
+
+Demonstra 4 cenários: consenso com todos os nós vivos, consenso com 1 nó morto (maioria
+decide), falha do líder com re-eleição e re-proposta, e detecção de falha/recuperação
+por heartbeat.
+
+**Parâmetros configuráveis** em `src/config.py`:
+- `HEARTBEAT_INTERVAL` — intervalo entre heartbeats (padrão: 1.0s)
+- `HEARTBEAT_TIMEOUT` — tempo sem resposta para considerar nó morto (padrão: 3.0s)
+
 ## Algoritmos Implementados
 
 | Categoria | Algoritmo | Status |
@@ -106,3 +120,5 @@ entrada na CS) e Maekawa (baseado em quóruns, ~3√N mensagens por entrada na C
 | Ordenação | Total ordering (sequenciador) | Implementado |
 | Exclusão Mútua | Ricart-Agrawala (permissões) | Implementado |
 | Exclusão Mútua | Maekawa (quóruns) | Implementado |
+| Consenso | Consenso baseado em líder (flooding) | Implementado |
+| Tolerância a Falhas | Detector de falhas por heartbeat | Implementado |
