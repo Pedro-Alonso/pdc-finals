@@ -9,6 +9,9 @@ RING_ORDER = [0, 1, 2, 3]
 
 DATA_DIR = "data"
 
+HEARTBEAT_INTERVAL = 1.0
+HEARTBEAT_TIMEOUT = 3.0
+
 
 def get_successor(node_id):
     idx = RING_ORDER.index(node_id)

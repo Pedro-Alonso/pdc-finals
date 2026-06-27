@@ -91,46 +91,53 @@ class TransportClient:
     def __init__(self):
         self._connections = {}
         self._lock = threading.Lock()
+        self._send_locks = {}
+
+    def _get_send_lock(self, node_id):
+        with self._lock:
+            if node_id not in self._send_locks:
+                self._send_locks[node_id] = threading.Lock()
+            return self._send_locks[node_id]
 
     def _get_connection(self, node_id):
-        with self._lock:
-            conn = self._connections.get(node_id)
-            if conn:
-                try:
-                    conn.getpeername()
-                    return conn
-                except OSError:
-                    self._connections.pop(node_id, None)
-
-            node_info = NODES[node_id]
+        conn = self._connections.get(node_id)
+        if conn:
             try:
-                conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                conn.settimeout(5.0)
-                conn.connect((node_info["host"], node_info["port"]))
-                self._connections[node_id] = conn
+                conn.getpeername()
                 return conn
             except OSError:
-                logger.warning(f"Cannot connect to node {node_id} at {node_info['host']}:{node_info['port']}")
-                return None
+                self._connections.pop(node_id, None)
+
+        node_info = NODES[node_id]
+        try:
+            conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            conn.settimeout(2.0)
+            conn.connect((node_info["host"], node_info["port"]))
+            self._connections[node_id] = conn
+            return conn
+        except OSError:
+            logger.warning(f"Cannot connect to node {node_id} at {node_info['host']}:{node_info['port']}")
+            return None
 
     def send(self, node_id, message):
-        conn = self._get_connection(node_id)
-        if not conn:
-            return False
-        data = message.to_json().encode("utf-8")
-        frame = struct.pack("!I", len(data)) + data
-        try:
-            conn.sendall(frame)
-            return True
-        except OSError:
-            logger.warning(f"Failed to send to node {node_id}")
-            with self._lock:
-                self._connections.pop(node_id, None)
+        send_lock = self._get_send_lock(node_id)
+        with send_lock:
+            conn = self._get_connection(node_id)
+            if not conn:
+                return False
+            data = message.to_json().encode("utf-8")
+            frame = struct.pack("!I", len(data)) + data
             try:
-                conn.close()
+                conn.sendall(frame)
+                return True
             except OSError:
-                pass
-            return False
+                logger.warning(f"Failed to send to node {node_id}")
+                self._connections.pop(node_id, None)
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+                return False
 
     def broadcast(self, message, exclude=None):
         exclude = exclude or []

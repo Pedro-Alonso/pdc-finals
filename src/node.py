@@ -10,7 +10,7 @@ from src.storage.shared_memory import init_storage
 
 
 class Node:
-    def __init__(self, node_id, election_algorithm=None):
+    def __init__(self, node_id, election_algorithm=None, enable_failure_detector=False):
         self.node_id = node_id
         self.clock = LamportClock()
         self.handlers = {}
@@ -18,6 +18,9 @@ class Node:
         self.election_algorithm = election_algorithm
         self._election = None
         self._running = False
+        self._enable_failure_detector = enable_failure_detector
+        self.failure_detector = None
+        self.consensus = None
 
         node_info = NODES[node_id]
         self.server = TransportServer(
@@ -95,11 +98,38 @@ class Node:
             from src.election.bully import BullyElection
             self._election = BullyElection(self)
 
+    def _init_failure_detector(self):
+        from src.consensus.failure_detector import FailureDetector
+        self.failure_detector = FailureDetector(
+            self,
+            on_failure=self._on_node_failure,
+            on_recovery=self._on_node_recovery,
+        )
+
+    def _init_consensus(self):
+        from src.consensus.consensus import ConsensusProtocol
+        self.consensus = ConsensusProtocol(self, failure_detector=self.failure_detector)
+
+    def _on_node_failure(self, node_id):
+        self._log(logging.WARNING, f"Detected failure of node {node_id}")
+        if node_id == self.leader_id and self._election:
+            self._log(logging.INFO, "Leader failed — starting re-election")
+            self._election.election_complete.clear()
+            self.start_election()
+
+    def _on_node_recovery(self, node_id):
+        self._log(logging.INFO, f"Detected recovery of node {node_id}")
+
     def start(self):
         self._running = True
         self.register_handler(MSG_PING, self._handle_ping)
         self._init_election()
+        if self._enable_failure_detector:
+            self._init_failure_detector()
+            self._init_consensus()
         self.server.start()
+        if self.failure_detector:
+            self.failure_detector.start()
         self._log(logging.INFO, f"Node {self.node_id} started")
 
     def _handle_ping(self, message):
@@ -107,6 +137,8 @@ class Node:
 
     def stop(self):
         self._running = False
+        if self.failure_detector:
+            self.failure_detector.stop()
         self.server.stop()
         self.client.close_all()
         self._log(logging.INFO, f"Node {self.node_id} stopped")
