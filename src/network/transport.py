@@ -18,6 +18,8 @@ class TransportServer:
         self._server_socket = None
         self._running = False
         self._threads = []
+        self._connections = []
+        self._conn_lock = threading.Lock()
 
     def start(self):
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -36,6 +38,8 @@ class TransportServer:
         while self._running:
             try:
                 conn, addr = self._server_socket.accept()
+                with self._conn_lock:
+                    self._connections.append(conn)
                 t = threading.Thread(target=self._handle_connection, args=(conn, addr), daemon=True)
                 t.start()
                 self._threads.append(t)
@@ -74,6 +78,13 @@ class TransportServer:
         self._running = False
         if self._server_socket:
             self._server_socket.close()
+        with self._conn_lock:
+            for conn in self._connections:
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+            self._connections.clear()
 
 
 class TransportClient:

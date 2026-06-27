@@ -10,10 +10,14 @@ from src.storage.shared_memory import init_storage
 
 
 class Node:
-    def __init__(self, node_id):
+    def __init__(self, node_id, election_algorithm=None):
         self.node_id = node_id
         self.clock = LamportClock()
         self.handlers = {}
+        self.leader_id = None
+        self.election_algorithm = election_algorithm
+        self._election = None
+        self._running = False
 
         node_info = NODES[node_id]
         self.server = TransportServer(
@@ -23,7 +27,7 @@ class Node:
         )
         self.client = TransportClient()
 
-        self.logger = logging.getLogger(f"node.{node_id}")
+        self.logger = logging.getLogger(f"node.{node_id}.{id(self)}")
         handler = logging.StreamHandler()
         handler.setFormatter(logging.Formatter(f"[NODE-{node_id}] [%(lamport_ts)s] %(message)s"))
         self.logger.addHandler(handler)
@@ -39,6 +43,8 @@ class Node:
         self.handlers[msg_type] = handler
 
     def _dispatch(self, message):
+        if not self._running:
+            return
         self.clock.update(message.timestamp)
         self._log(logging.INFO, f"Received {message.type} from node {message.sender_id}")
 
@@ -71,8 +77,28 @@ class Node:
         self._log(logging.INFO, f"Broadcasting {msg_type}")
         self.client.broadcast(msg, exclude=[self.node_id])
 
+    def is_leader(self):
+        return self.leader_id == self.node_id
+
+    def on_leader_elected(self, leader_id):
+        self._log(logging.INFO, f"Leader set to node {leader_id}")
+
+    def start_election(self):
+        if self._election:
+            self._election.start_election()
+
+    def _init_election(self):
+        if self.election_algorithm == "chang_roberts":
+            from src.election.chang_roberts import ChangRobertsElection
+            self._election = ChangRobertsElection(self)
+        elif self.election_algorithm == "bully":
+            from src.election.bully import BullyElection
+            self._election = BullyElection(self)
+
     def start(self):
+        self._running = True
         self.register_handler(MSG_PING, self._handle_ping)
+        self._init_election()
         self.server.start()
         self._log(logging.INFO, f"Node {self.node_id} started")
 
@@ -80,6 +106,7 @@ class Node:
         self.send(message.sender_id, MSG_PONG)
 
     def stop(self):
+        self._running = False
         self.server.stop()
         self.client.close_all()
         self._log(logging.INFO, f"Node {self.node_id} stopped")
