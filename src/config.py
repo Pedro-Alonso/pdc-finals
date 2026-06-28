@@ -12,6 +12,9 @@ DATA_DIR = "data"
 HEARTBEAT_INTERVAL = 1.0
 HEARTBEAT_TIMEOUT = 3.0
 
+LOCK_TIMEOUT = 5.0
+DEADLOCK_DETECTION_INTERVAL = 2.0
+
 
 def get_successor(node_id):
     idx = RING_ORDER.index(node_id)

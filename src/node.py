@@ -4,7 +4,12 @@ import time
 
 from src.config import NODES
 from src.network.clock import LamportClock
-from src.network.message import Message, MSG_PING, MSG_PONG
+from src.network.message import (
+    Message, MSG_PING, MSG_PONG,
+    MSG_TXN_BEGIN, MSG_TXN_READ, MSG_TXN_READ_RESPONSE,
+    MSG_TXN_WRITE, MSG_TXN_WRITE_ACK, MSG_TXN_COMMIT, MSG_TXN_ABORT,
+    MSG_LOCK_REQUEST, MSG_LOCK_GRANT, MSG_LOCK_DENY, MSG_LOCK_RELEASE,
+)
 from src.network.transport import TransportServer, TransportClient
 from src.storage.shared_memory import init_storage
 
@@ -21,6 +26,7 @@ class Node:
         self._enable_failure_detector = enable_failure_detector
         self.failure_detector = None
         self.consensus = None
+        self.txn_manager = None
 
         node_info = NODES[node_id]
         self.server = TransportServer(
@@ -110,6 +116,51 @@ class Node:
         from src.consensus.consensus import ConsensusProtocol
         self.consensus = ConsensusProtocol(self, failure_detector=self.failure_detector)
 
+    def _init_transactions(self):
+        from src.storage.transaction import TransactionManager
+        self.txn_manager = TransactionManager(self.node_id)
+        self.register_handler(MSG_TXN_READ, self._handle_txn_read)
+        self.register_handler(MSG_TXN_WRITE, self._handle_txn_write)
+        self.register_handler(MSG_TXN_COMMIT, self._handle_txn_commit)
+        self.register_handler(MSG_TXN_ABORT, self._handle_txn_abort)
+        self.register_handler(MSG_TXN_READ_RESPONSE, self._handle_txn_read_response)
+        self.register_handler(MSG_TXN_WRITE_ACK, self._handle_txn_write_ack)
+
+    def _handle_txn_read(self, message):
+        p = message.payload
+        txn_id = p["txn_id"]
+        resource = p["resource"]
+        key = p["key"]
+        value = self.txn_manager.read(txn_id, resource, key, timeout=5.0)
+        self.send(message.sender_id, MSG_TXN_READ_RESPONSE, {
+            "txn_id": txn_id, "key": key, "value": value,
+        })
+
+    def _handle_txn_write(self, message):
+        p = message.payload
+        txn_id = p["txn_id"]
+        resource = p["resource"]
+        key = p["key"]
+        value = p["value"]
+        ok = self.txn_manager.write(txn_id, resource, key, value, timeout=5.0)
+        self.send(message.sender_id, MSG_TXN_WRITE_ACK, {
+            "txn_id": txn_id, "key": key, "success": ok,
+        })
+
+    def _handle_txn_commit(self, message):
+        txn_id = message.payload["txn_id"]
+        self.txn_manager.commit(txn_id)
+
+    def _handle_txn_abort(self, message):
+        txn_id = message.payload["txn_id"]
+        self.txn_manager.abort(txn_id)
+
+    def _handle_txn_read_response(self, message):
+        pass
+
+    def _handle_txn_write_ack(self, message):
+        pass
+
     def _on_node_failure(self, node_id):
         self._log(logging.WARNING, f"Detected failure of node {node_id}")
         if node_id == self.leader_id and self._election:
@@ -124,12 +175,15 @@ class Node:
         self._running = True
         self.register_handler(MSG_PING, self._handle_ping)
         self._init_election()
+        self._init_transactions()
         if self._enable_failure_detector:
             self._init_failure_detector()
             self._init_consensus()
         self.server.start()
         if self.failure_detector:
             self.failure_detector.start()
+        if self.txn_manager:
+            self.txn_manager.start()
         self._log(logging.INFO, f"Node {self.node_id} started")
 
     def _handle_ping(self, message):
@@ -137,6 +191,8 @@ class Node:
 
     def stop(self):
         self._running = False
+        if self.txn_manager:
+            self.txn_manager.stop()
         if self.failure_detector:
             self.failure_detector.stop()
         self.server.stop()
