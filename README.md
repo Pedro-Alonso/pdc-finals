@@ -121,24 +121,54 @@ grafo espera-por (WFG), e transações aninhadas com herança de travas.
 - **Concurrency Control** — Strict Two-Phase Locking (S2PL)
 - **Transaction Manager** — transações ACID com write buffer e read-your-writes
 
+### Recuperação de Falhas (WAL)
+
+```bash
+python -m src.demo.demo_recovery
+```
+
+Demonstra 3 cenários: WAL com commit normal (verifica entries BEGIN/WRITE/COMMIT),
+crash antes do commit com undo (restaura before_values), e crash após commit com
+redo (re-aplica after_values a partir do log).
+
+**Componentes**:
+- **Write-Ahead Log** — log persistente com fsync, formato `LSN|txn_id|type|resource|before|after|timestamp`
+- **Recovery Manager** — recuperação em 3 fases (análise, redo, undo) inspirada em ARIES
+
+### Commit Distribuído (2PC)
+
+```bash
+python -m src.demo.demo_2pc
+```
+
+Demonstra 3 cenários: 2PC com todos votando commit (GLOBAL_COMMIT), um participante
+votando abort (GLOBAL_ABORT), e timeout de participante (GLOBAL_ABORT automático).
+
+**Componentes**:
+- **Two-Phase Coordinator** — gerencia fase de prepare e decisão, com retry de ACKs
+- **Two-Phase Participant** — vota commit/abort, aplica decisão global
+
 ## Algoritmos Implementados
 
-| Categoria | Algoritmo | Status |
-|-----------|-----------|--------|
-| Comunicação | Transporte TCP com protocolo JSON | Implementado |
-| Relógios | Relógio lógico de Lamport | Implementado |
-| Relógios | Relógio vetorial (Vector Clock) | Implementado |
-| Armazenamento | Memória compartilhada em arquivos texto | Implementado |
-| Eleição de Líder | Chang-Roberts (anel) | Implementado |
-| Eleição de Líder | Bully (prioridade) | Implementado |
-| Ordenação | FIFO ordering | Implementado |
-| Ordenação | Causal ordering (vector clocks) | Implementado |
-| Ordenação | Total ordering (sequenciador) | Implementado |
-| Exclusão Mútua | Ricart-Agrawala (permissões) | Implementado |
-| Exclusão Mútua | Maekawa (quóruns) | Implementado |
-| Consenso | Consenso baseado em líder (flooding) | Implementado |
-| Tolerância a Falhas | Detector de falhas por heartbeat | Implementado |
-| Transações | Gerenciador de transações ACID | Implementado |
-| Concorrência | Strict Two-Phase Locking (S2PL) | Implementado |
-| Travas | Lock Manager (S/X locks, herança) | Implementado |
-| Deadlock | Detecção via grafo espera-por (WFG) | Implementado |
+| Categoria | Algoritmo |
+|-----------|-----------|
+| Comunicação | Transporte TCP com protocolo JSON |
+| Relógios | Relógio lógico de Lamport |
+| Relógios | Relógio vetorial (Vector Clock) |
+| Armazenamento | Memória compartilhada em arquivos texto |
+| Eleição de Líder | Chang-Roberts (anel) |
+| Eleição de Líder | Bully (prioridade) |
+| Ordenação | FIFO ordering |
+| Ordenação | Causal ordering (vector clocks) |
+| Ordenação | Total ordering (sequenciador) |
+| Exclusão Mútua | Ricart-Agrawala (permissões) |
+| Exclusão Mútua | Maekawa (quóruns) |
+| Consenso | Consenso baseado em líder (flooding) |
+| Tolerância a Falhas | Detector de falhas por heartbeat |
+| Transações | Gerenciador de transações ACID |
+| Concorrência | Strict Two-Phase Locking (S2PL) |
+| Travas | Lock Manager (S/X locks, herança) |
+| Deadlock | Detecção via grafo espera-por (WFG) |
+| Recuperação | Write-Ahead Log (WAL) com redo/undo |
+| Recuperação | Recovery Manager (ARIES simplificado) |
+| Commit Distribuído | Two-Phase Commit (2PC) |
