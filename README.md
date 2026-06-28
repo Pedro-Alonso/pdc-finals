@@ -105,6 +105,22 @@ por heartbeat.
 - `HEARTBEAT_INTERVAL` — intervalo entre heartbeats (padrão: 1.0s)
 - `HEARTBEAT_TIMEOUT` — tempo sem resposta para considerar nó morto (padrão: 3.0s)
 
+### Transações Distribuídas
+
+```bash
+python -m src.demo.demo_transactions
+```
+
+Demonstra 6 cenários: transação simples (commit), abort com rollback, prevenção de
+Lost Update via S2PL, prevenção de Dirty Read, detecção e resolução de deadlock via
+grafo espera-por (WFG), e transações aninhadas com herança de travas.
+
+**Componentes**:
+- **Lock Manager** — travas compartilhadas (S) e exclusivas (X) com fila de espera
+- **Deadlock Detector** — grafo espera-por com detecção de ciclos via DFS
+- **Concurrency Control** — Strict Two-Phase Locking (S2PL)
+- **Transaction Manager** — transações ACID com write buffer e read-your-writes
+
 ## Algoritmos Implementados
 
 | Categoria | Algoritmo | Status |
@@ -122,3 +138,7 @@ por heartbeat.
 | Exclusão Mútua | Maekawa (quóruns) | Implementado |
 | Consenso | Consenso baseado em líder (flooding) | Implementado |
 | Tolerância a Falhas | Detector de falhas por heartbeat | Implementado |
+| Transações | Gerenciador de transações ACID | Implementado |
+| Concorrência | Strict Two-Phase Locking (S2PL) | Implementado |
+| Travas | Lock Manager (S/X locks, herança) | Implementado |
+| Deadlock | Detecção via grafo espera-por (WFG) | Implementado |
