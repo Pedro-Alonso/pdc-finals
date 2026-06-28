@@ -98,11 +98,15 @@ class TestConsensus:
         try:
             elect_leader(nodes)
 
+            leader = next(n for n in nodes if n.is_leader())
             victim = next(n for n in nodes if not n.is_leader())
             victim.stop()
-            time.sleep(5)
 
-            leader = next(n for n in nodes if n.is_leader())
+            deadline = time.time() + 15
+            while leader.failure_detector.is_alive(victim.node_id):
+                assert time.time() < deadline, "Failure detector did not detect dead node"
+                time.sleep(0.5)
+
             result = leader.consensus.propose("VALUE_B")
             time.sleep(0.5)
 
