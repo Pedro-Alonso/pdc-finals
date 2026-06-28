@@ -9,6 +9,8 @@ from src.network.message import (
     MSG_TXN_BEGIN, MSG_TXN_READ, MSG_TXN_READ_RESPONSE,
     MSG_TXN_WRITE, MSG_TXN_WRITE_ACK, MSG_TXN_COMMIT, MSG_TXN_ABORT,
     MSG_LOCK_REQUEST, MSG_LOCK_GRANT, MSG_LOCK_DENY, MSG_LOCK_RELEASE,
+    MSG_2PC_PREPARE, MSG_2PC_VOTE_COMMIT, MSG_2PC_VOTE_ABORT,
+    MSG_2PC_GLOBAL_COMMIT, MSG_2PC_GLOBAL_ABORT, MSG_2PC_ACK,
 )
 from src.network.transport import TransportServer, TransportClient
 from src.storage.shared_memory import init_storage
@@ -27,6 +29,10 @@ class Node:
         self.failure_detector = None
         self.consensus = None
         self.txn_manager = None
+        self.wal = None
+        self.recovery_manager = None
+        self.two_phase_coord = None
+        self.two_phase_part = None
 
         node_info = NODES[node_id]
         self.server = TransportServer(
@@ -116,15 +122,35 @@ class Node:
         from src.consensus.consensus import ConsensusProtocol
         self.consensus = ConsensusProtocol(self, failure_detector=self.failure_detector)
 
+    def _init_recovery(self):
+        from src.recovery.wal import WriteAheadLog
+        from src.recovery.recovery import RecoveryManager
+        from src.storage import shared_memory
+
+        self.wal = WriteAheadLog(self.node_id)
+        self.recovery_manager = RecoveryManager()
+        self.recovery_manager.recover(self.wal, shared_memory, self.node_id)
+
     def _init_transactions(self):
         from src.storage.transaction import TransactionManager
-        self.txn_manager = TransactionManager(self.node_id)
+        self.txn_manager = TransactionManager(self.node_id, wal=self.wal)
         self.register_handler(MSG_TXN_READ, self._handle_txn_read)
         self.register_handler(MSG_TXN_WRITE, self._handle_txn_write)
         self.register_handler(MSG_TXN_COMMIT, self._handle_txn_commit)
         self.register_handler(MSG_TXN_ABORT, self._handle_txn_abort)
         self.register_handler(MSG_TXN_READ_RESPONSE, self._handle_txn_read_response)
         self.register_handler(MSG_TXN_WRITE_ACK, self._handle_txn_write_ack)
+
+    def _init_2pc(self):
+        from src.commit.two_phase import TwoPhaseCoordinator, TwoPhaseParticipant
+        self.two_phase_coord = TwoPhaseCoordinator(self, wal=self.wal)
+        self.two_phase_part = TwoPhaseParticipant(self, wal=self.wal, txn_manager=self.txn_manager)
+        self.register_handler(MSG_2PC_PREPARE, self.two_phase_part.handle_prepare)
+        self.register_handler(MSG_2PC_VOTE_COMMIT, self.two_phase_coord.handle_vote_commit)
+        self.register_handler(MSG_2PC_VOTE_ABORT, self.two_phase_coord.handle_vote_abort)
+        self.register_handler(MSG_2PC_GLOBAL_COMMIT, self.two_phase_part.handle_global_commit)
+        self.register_handler(MSG_2PC_GLOBAL_ABORT, self.two_phase_part.handle_global_abort)
+        self.register_handler(MSG_2PC_ACK, self.two_phase_coord.handle_ack)
 
     def _handle_txn_read(self, message):
         p = message.payload
@@ -175,7 +201,9 @@ class Node:
         self._running = True
         self.register_handler(MSG_PING, self._handle_ping)
         self._init_election()
+        self._init_recovery()
         self._init_transactions()
+        self._init_2pc()
         if self._enable_failure_detector:
             self._init_failure_detector()
             self._init_consensus()
