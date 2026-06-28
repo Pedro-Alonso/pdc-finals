@@ -27,7 +27,7 @@ class Transaction:
 
 
 class TransactionManager:
-    def __init__(self, node_id, lock_manager=None):
+    def __init__(self, node_id, lock_manager=None, wal=None):
         self.node_id = node_id
         self.lock_manager = lock_manager or LockManager()
         self.concurrency = ConcurrencyControl(self.lock_manager)
@@ -35,6 +35,7 @@ class TransactionManager:
             self.lock_manager,
             on_victim=self._abort_victim,
         )
+        self.wal = wal
         self._lock = threading.Lock()
         self._transactions = {}
         self._seq = 0
@@ -46,6 +47,8 @@ class TransactionManager:
             txn_id = f"node_{self.node_id}_txn_{self._seq}"
             txn = Transaction(txn_id, parent_txn_id=parent_txn_id)
             self._transactions[txn_id] = txn
+        if self.wal:
+            self.wal.log_begin(txn_id)
         self.logger.info(f"BEGIN {txn_id}" + (f" (child of {parent_txn_id})" if parent_txn_id else ""))
         return txn_id
 
@@ -89,6 +92,10 @@ class TransactionManager:
         txn.locks_held.add((resource, LockType.EXCLUSIVE))
 
         buf_key = f"{resource}:{key}"
+        if self.wal:
+            old_record = shared_memory.read_record(self.node_id, resource, key)
+            before = old_record["value"] if old_record else ""
+            self.wal.log_write(txn_id, buf_key, before, value)
         txn.write_buffer[buf_key] = value
         self.logger.debug(f"{txn_id} buffered write {key}={value} on {resource}")
         return True
@@ -97,6 +104,9 @@ class TransactionManager:
         txn = self._get_active(txn_id)
         if txn is None:
             return False
+
+        if self.wal:
+            self.wal.log_commit(txn_id)
 
         ts = int(time.time() * 1000)
         for buf_key, value in txn.write_buffer.items():
@@ -121,6 +131,8 @@ class TransactionManager:
         if txn is None or txn.status != TransactionStatus.ACTIVE:
             return
 
+        if self.wal:
+            self.wal.log_abort(txn_id)
         txn.write_buffer.clear()
         txn.status = TransactionStatus.ABORTED
         self.logger.info(f"ABORT {txn_id}")
