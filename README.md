@@ -31,16 +31,49 @@ algoritmos clássicos de coordenação, consenso, transações e controle de con
 Cada nó é um processo independente que:
 - Escuta conexões TCP em sua porta designada
 - Troca mensagens JSON com framing length-prefix (4 bytes big-endian)
-- Mantém um relógio lógico de Lamport para ordenação de eventos
+- Mantém relógios lógicos (Lamport + Vetorial) para ordenação de eventos
 - Persiste registros em arquivos texto em `data/node_<id>/`
+
+## Algoritmos Implementados
+
+| # | Categoria | Algoritmo |
+|---|-----------|-----------|
+| 1 | Eleição de Líder | Chang-Roberts (anel) |
+| 2 | Eleição de Líder | Bully (prioridade) |
+| 3 | Ordenação | FIFO ordering |
+| 4 | Ordenação | Causal ordering (vector clocks) |
+| 5 | Ordenação | Total ordering (sequenciador) |
+| 6 | Exclusão Mútua | Ricart-Agrawala (permissões) |
+| 7 | Exclusão Mútua | Maekawa (quóruns) |
+| 8 | Consenso | Consenso baseado em líder |
+| 9 | Tolerância a Falhas | Detector de falhas por heartbeat |
+| 10 | Transações | Gerenciador de transações ACID |
+| 11 | Concorrência | Strict Two-Phase Locking (S2PL) |
+| 12 | Travas | Lock Manager (S/X locks, herança) |
+| 13 | Deadlock | Detecção via grafo espera-por (WFG) |
+| 14 | Recuperação | Write-Ahead Log (WAL) com redo/undo |
+| 15 | Recuperação | Recovery Manager (ARIES simplificado) |
+| 16 | Commit Distribuído | Two-Phase Commit (2PC) |
 
 ## Como Executar
 
 ### Pré-requisitos
 
 - Python 3.10+
+- pytest (apenas para testes)
 
-### Iniciar nós
+### Instalação
+
+```bash
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# Linux/macOS:
+# source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Iniciar nós individualmente
 
 Em terminais separados:
 
@@ -51,124 +84,73 @@ python -m src.node --id 2
 python -m src.node --id 3
 ```
 
+### Demo completo (todas as funcionalidades)
+
+```bash
+python -m src.demo.full_demo
+```
+
+Exercita as 10 partes do enunciado em sequência: inicialização, eleição, ordenação,
+exclusão mútua, consenso, transações, deadlock, recuperação e 2PC.
+
+### Demos individuais
+
+```bash
+python -m src.demo.demo_election       # Eleição de líder
+python -m src.demo.demo_ordering        # Ordenação de mensagens
+python -m src.demo.demo_mutex           # Exclusão mútua
+python -m src.demo.demo_consensus       # Consenso e tolerância a falhas
+python -m src.demo.demo_transactions    # Transações, concorrência, deadlock
+python -m src.demo.demo_recovery        # Recuperação de falhas (WAL)
+python -m src.demo.demo_2pc             # Two-Phase Commit
+```
+
 ### Testes
 
 ```bash
-python -m venv .venv
-.venv/Scripts/activate   # Windows
-# source .venv/bin/activate  # Linux/macOS
-pip install -r requirements.txt
 pytest tests/ -v
 ```
 
-## Demos
+## Estrutura do Projeto
 
-### Eleição de Líder
-
-```bash
-python -m src.demo.demo_election
 ```
-
-Demonstra 4 cenários: Chang-Roberts com todos os nós vivos, Bully com todos vivos,
-falha do líder com re-eleição, e entrada de nó com maior prioridade.
-
-### Ordenação de Mensagens
-
-```bash
-python -m src.demo.demo_ordering
+src/
+  node.py              — ponto de entrada de cada nó
+  config.py            — configuração do cluster (IDs, portas, topologia)
+  network/
+    transport.py       — TCP connections, send/receive, framing
+    message.py         — tipos de mensagem, serialização JSON
+    clock.py           — Lamport clock + Vector clock
+    ordering.py        — FIFO, Causal, Total ordering
+  election/
+    chang_roberts.py   — eleição em anel (Chang-Roberts)
+    bully.py           — algoritmo Valentão (Bully)
+  mutex/
+    ricart_agrawala.py — exclusão mútua (Ricart-Agrawala)
+    maekawa.py         — exclusão mútua com quóruns (Maekawa)
+  consensus/
+    consensus.py       — protocolo de consenso baseado em líder
+    failure_detector.py — detecção de falhas por heartbeat
+  storage/
+    shared_memory.py   — leitura/escrita de registros em arquivos texto
+    transaction.py     — gerenciador de transações (ACID)
+    lock_manager.py    — travas compartilhadas (S) e exclusivas (X)
+    concurrency.py     — controle de concorrência (Strict 2PL)
+    deadlock.py        — grafo espera-por, detecção de ciclos
+  recovery/
+    wal.py             — write-ahead log persistente
+    recovery.py        — recuperação redo/undo após falha
+  commit/
+    two_phase.py       — protocolo 2PC (coordenador/participante)
+  demo/
+    full_demo.py       — demo integrado (todas as funcionalidades)
+    demo_election.py   — demo de eleição de líder
+    demo_ordering.py   — demo de ordenação de mensagens
+    demo_mutex.py      — demo de exclusão mútua
+    demo_consensus.py  — demo de consenso
+    demo_transactions.py — demo de transações e deadlock
+    demo_recovery.py   — demo de recuperação (WAL)
+    demo_2pc.py        — demo de Two-Phase Commit
+tests/                 — testes unitários e de integração (pytest)
+data/                  — criado em runtime, um subdiretório por nó
 ```
-
-Demonstra 3 tipos de ordenação: FIFO (mensagens entregues na ordem de envio por sender),
-Causal (dependências causa-efeito preservadas via vector clocks) e Total (todos os nós
-entregam na mesma ordem global via sequenciador).
-
-### Exclusão Mútua
-
-```bash
-python -m src.demo.demo_mutex
-```
-
-Demonstra 2 algoritmos: Ricart-Agrawala (baseado em permissões, 2(N-1) mensagens por
-entrada na CS) e Maekawa (baseado em quóruns, ~3√N mensagens por entrada na CS).
-
-### Consenso e Tolerância a Falhas
-
-```bash
-python -m src.demo.demo_consensus
-```
-
-Demonstra 4 cenários: consenso com todos os nós vivos, consenso com 1 nó morto (maioria
-decide), falha do líder com re-eleição e re-proposta, e detecção de falha/recuperação
-por heartbeat.
-
-**Parâmetros configuráveis** em `src/config.py`:
-- `HEARTBEAT_INTERVAL` — intervalo entre heartbeats (padrão: 1.0s)
-- `HEARTBEAT_TIMEOUT` — tempo sem resposta para considerar nó morto (padrão: 3.0s)
-
-### Transações Distribuídas
-
-```bash
-python -m src.demo.demo_transactions
-```
-
-Demonstra 6 cenários: transação simples (commit), abort com rollback, prevenção de
-Lost Update via S2PL, prevenção de Dirty Read, detecção e resolução de deadlock via
-grafo espera-por (WFG), e transações aninhadas com herança de travas.
-
-**Componentes**:
-- **Lock Manager** — travas compartilhadas (S) e exclusivas (X) com fila de espera
-- **Deadlock Detector** — grafo espera-por com detecção de ciclos via DFS
-- **Concurrency Control** — Strict Two-Phase Locking (S2PL)
-- **Transaction Manager** — transações ACID com write buffer e read-your-writes
-
-### Recuperação de Falhas (WAL)
-
-```bash
-python -m src.demo.demo_recovery
-```
-
-Demonstra 3 cenários: WAL com commit normal (verifica entries BEGIN/WRITE/COMMIT),
-crash antes do commit com undo (restaura before_values), e crash após commit com
-redo (re-aplica after_values a partir do log).
-
-**Componentes**:
-- **Write-Ahead Log** — log persistente com fsync, formato `LSN|txn_id|type|resource|before|after|timestamp`
-- **Recovery Manager** — recuperação em 3 fases (análise, redo, undo) inspirada em ARIES
-
-### Commit Distribuído (2PC)
-
-```bash
-python -m src.demo.demo_2pc
-```
-
-Demonstra 3 cenários: 2PC com todos votando commit (GLOBAL_COMMIT), um participante
-votando abort (GLOBAL_ABORT), e timeout de participante (GLOBAL_ABORT automático).
-
-**Componentes**:
-- **Two-Phase Coordinator** — gerencia fase de prepare e decisão, com retry de ACKs
-- **Two-Phase Participant** — vota commit/abort, aplica decisão global
-
-## Algoritmos Implementados
-
-| Categoria | Algoritmo |
-|-----------|-----------|
-| Comunicação | Transporte TCP com protocolo JSON |
-| Relógios | Relógio lógico de Lamport |
-| Relógios | Relógio vetorial (Vector Clock) |
-| Armazenamento | Memória compartilhada em arquivos texto |
-| Eleição de Líder | Chang-Roberts (anel) |
-| Eleição de Líder | Bully (prioridade) |
-| Ordenação | FIFO ordering |
-| Ordenação | Causal ordering (vector clocks) |
-| Ordenação | Total ordering (sequenciador) |
-| Exclusão Mútua | Ricart-Agrawala (permissões) |
-| Exclusão Mútua | Maekawa (quóruns) |
-| Consenso | Consenso baseado em líder (flooding) |
-| Tolerância a Falhas | Detector de falhas por heartbeat |
-| Transações | Gerenciador de transações ACID |
-| Concorrência | Strict Two-Phase Locking (S2PL) |
-| Travas | Lock Manager (S/X locks, herança) |
-| Deadlock | Detecção via grafo espera-por (WFG) |
-| Recuperação | Write-Ahead Log (WAL) com redo/undo |
-| Recuperação | Recovery Manager (ARIES simplificado) |
-| Commit Distribuído | Two-Phase Commit (2PC) |
